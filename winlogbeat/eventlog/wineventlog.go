@@ -49,7 +49,7 @@ const (
 
 var winEventLogConfigKeys = common.MakeStringSet(append(commonConfigKeys,
 	"batch_read_size", "ignore_older", "include_xml", "event_id", "forwarded",
-	"level", "provider", "no_more_events")...)
+	"level", "provider", "no_more_events", "is_file")...)
 
 type winEventLogConfig struct {
 	ConfigCommon  `config:",inline"`
@@ -58,6 +58,7 @@ type winEventLogConfig struct {
 	Forwarded     *bool              `config:"forwarded"`
 	SimpleQuery   query              `config:",inline"`
 	NoMoreEvents  NoMoreEventsAction `config:"no_more_events"` // Action to take when no more events are available - wait or stop.
+	IsFile        bool               `config:"is_file"`        // To determine whether to subscribe or read events
 }
 
 // NoMoreEventsAction defines what action for the reader to take when
@@ -145,7 +146,7 @@ func (l *winEventLog) Name() string {
 }
 
 func (l *winEventLog) Open(state checkpoint.EventLogState) error {
-	if l.file {
+	if l.config.IsFile {
 		return l.openFile(state)
 	}
 	return l.OpenChannel()
