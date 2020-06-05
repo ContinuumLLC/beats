@@ -110,7 +110,6 @@ func testWindowsEventLog(t *testing.T, api string) {
 		log := openLog(t, map[string]interface{}{
 			"name":           path,
 			"no_more_events": "stop",
-			"is_file":        true,
 		})
 		defer log.Close()
 
