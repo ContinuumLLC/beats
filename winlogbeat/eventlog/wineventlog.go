@@ -148,7 +148,7 @@ func (l *winEventLog) Open(state checkpoint.EventLogState) error {
 	if l.file {
 		return l.openFile(state)
 	}
-	return l.OpenChannel()
+	return l.openChannel()
 }
 
 func (l *winEventLog) openChannel() error {
