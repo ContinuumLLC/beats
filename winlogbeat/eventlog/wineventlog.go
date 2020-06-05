@@ -145,8 +145,9 @@ func (l *winEventLog) Name() string {
 }
 
 func (l *winEventLog) Open(state checkpoint.EventLogState) error {
+	var bookmark win.EvtHandle
 	if l.file {
-		return l.openFile(state)
+		return l.openFile(state, bookmark)
 	}
 	return l.openChannel()
 }
@@ -186,10 +187,37 @@ func (l *winEventLog) openChannel() error {
 func (l *winEventLog) openFile(state checkpoint.EventLogState, bookmark win.EvtHandle) error {
 	path := l.channelName
 
-	h, err := win.EvtQuery(0, path, l.query, win.EvtQueryChannelPath|win.EvtQueryReverseDirection)
+	h, err := win.EvtQuery(0, path, "", win.EvtQueryFilePath|win.EvtQueryForwardDirection)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get handle to event log file %v", path)
 	}
+
+	if bookmark > 0 {
+		debugf("%s Seeking to bookmark. timestamp=%v bookmark=%v",
+			l.logPrefix, state.Timestamp, state.Bookmark)
+
+		// This seeks to the last read event and strictly validates that the
+		// bookmarked record number exists.
+		if err = win.EvtSeek(h, 0, bookmark, win.EvtSeekRelativeToBookmark|win.EvtSeekStrict); err == nil {
+			// Then we advance past the last read event to avoid sending that
+			// event again. This won't fail if we're at the end of the file.
+			err = errors.Wrap(
+				win.EvtSeek(h, 1, bookmark, win.EvtSeekRelativeToBookmark),
+				"failed to seek past bookmarked position")
+		} else {
+			logp.Warn("%s Failed to seek to bookmarked location in %v (error: %v). "+
+				"Recovering by reading the log from the beginning. (Did the file "+
+				"change since it was last read?)", l.logPrefix, path, err)
+			err = errors.Wrap(
+				win.EvtSeek(h, 0, 0, win.EvtSeekRelativeToFirst),
+				"failed to seek to beginning of log")
+		}
+
+		if err != nil {
+			return err
+		}
+	}
+
 	l.subscription = h
 	return nil
 }
