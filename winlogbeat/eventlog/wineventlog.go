@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+//go:build windows
 // +build windows
 
 package eventlog
@@ -45,7 +46,7 @@ const (
 )
 
 var winEventLogConfigKeys = append(commonConfigKeys, "batch_read_size",
-	"ignore_older", "include_xml", "event_id", "forwarded", "level", "provider")
+	"ignore_older", "include_xml", "event_id", "forwarded", "level", "provider", "record_id")
 
 type winEventLogConfig struct {
 	ConfigCommon  `config:",inline"`
@@ -64,6 +65,7 @@ var defaultWinEventLogConfig = winEventLogConfig{
 // queried from the log.
 type query struct {
 	IgnoreOlder time.Duration `config:"ignore_older"` // Ignore records older than this period of time.
+	RecordID    uint64        `config:"record_id"`    // RecordID of last read event.
 	EventID     string        `config:"event_id"`     // White-list and black-list of events.
 	Level       string        `config:"level"`        // Severity level.
 	Provider    []string      `config:"provider"`     // Provider (source name).
@@ -86,12 +88,13 @@ var _ EventLog = &winEventLog{}
 // winEventLog implements the EventLog interface for reading from the Windows
 // Event Log API.
 type winEventLog struct {
-	config       winEventLogConfig
-	query        string
-	channelName  string                   // Name of the channel from which to read.
-	subscription win.EvtHandle            // Handle to the subscription.
-	maxRead      int                      // Maximum number returned in one Read.
-	lastRead     checkpoint.EventLogState // Record number of the last read event.
+	config            winEventLogConfig
+	query             string
+	channelName       string                   // Name of the channel from which to read.
+	subscription      win.EvtHandle            // Handle to the subscription.
+	bookmarkEvtHandle win.EvtHandle            // Bookmark handle for resuming from a specific event.
+	maxRead           int                      // Maximum number returned in one Read.
+	lastRead          checkpoint.EventLogState // Record number of the last read event.
 
 	render    func(event win.EvtHandle, out io.Writer) error // Function for rendering the event to XML.
 	renderBuf []byte                                         // Buffer used for rendering event.
@@ -110,10 +113,7 @@ func (l *winEventLog) Name() string {
 func (l *winEventLog) Open(state checkpoint.EventLogState) error {
 	var err error
 
-	flags := win.EvtSubscribeToFutureEvents
-	if l.config.SimpleQuery.IgnoreOlder > 0 {
-		flags = win.EvtSubscribeStartAtOldestRecord
-	}
+	flags := win.EvtSubscribeStartAfterBookmark
 
 	// Using a pull subscription to receive events. See:
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/aa385771(v=vs.85).aspx#pull
@@ -122,14 +122,20 @@ func (l *winEventLog) Open(state checkpoint.EventLogState) error {
 		return nil
 	}
 
+	if 0 == l.config.SimpleQuery.RecordID {
+		l.bookmarkEvtHandle, err = win.CreateBookmark()
+	} else {
+		l.bookmarkEvtHandle, err = win.CreateBookmarkFromRecordID(l.channelName, l.config.SimpleQuery.RecordID)
+	}
+
 	debugf("%s using subscription query=%s", l.logPrefix, l.query)
 	subscriptionHandle, err := win.Subscribe(
-		0,       // Session - nil for localhost
-		l.evt,   //signalEvent
-		"",      // Channel - empty b/c channel is in the query
-		l.query, // Query - nil means all events
-		0,       // Bookmark - for resuming from a specific event
-		flags,   // Bookmark - for resuming from a specific event
+		0,                   // Session - nil for localhost
+		l.evt,               //signalEvent
+		"",                  // Channel - empty b/c channel is in the query
+		l.query,             // Query - nil means all events
+		l.bookmarkEvtHandle, // Bookmark - for resuming from a specific event
+		flags,               // Bookmark - for resuming from a specific event
 	)
 	if err != nil {
 		return err
@@ -195,6 +201,7 @@ func (l *winEventLog) Close() error {
 	debugf("%s Closing handle", l.logPrefix)
 	windows.SetEvent(l.evt)
 	//windows.CloseHandle(l.evt)
+	win.Close(l.bookmarkEvtHandle)
 	return win.Close(l.subscription)
 }
 
