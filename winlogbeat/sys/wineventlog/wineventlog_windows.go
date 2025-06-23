@@ -130,7 +130,7 @@ func Subscribe(
 	}
 
 	eventHandle, err := _EvtSubscribe(session, uintptr(event), cp, q, bookmark,
-		0, 0, flags)
+		uintptr(bookmark), 0, flags)
 	if err != nil {
 		return 0, err
 	}
@@ -238,6 +238,16 @@ func CreateBookmarkFromRecordID(channel string, recordID uint64) (EvtHandle, err
 		return 0, err
 	}
 
+	return h, nil
+}
+
+// CreateBookmark creates a new bookmark.
+// Close must be called on returned EvtHandle when finished with the handle.
+func CreateBookmark() (EvtHandle, error) {
+	h, err := _EvtCreateBookmark(nil)
+	if err != nil {
+		return 0, err
+	}
 	return h, nil
 }
 
