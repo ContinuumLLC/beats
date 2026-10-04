@@ -46,14 +46,15 @@ const (
 )
 
 var winEventLogConfigKeys = append(commonConfigKeys, "batch_read_size",
-	"ignore_older", "include_xml", "event_id", "forwarded", "level", "provider", "record_id")
+	"ignore_older", "include_xml", "event_id", "forwarded", "level", "provider", "record_id", "language")
 
 type winEventLogConfig struct {
 	ConfigCommon  `config:",inline"`
-	BatchReadSize int   `config:"batch_read_size"` // Maximum number of events that Read will return.
-	IncludeXML    bool  `config:"include_xml"`
-	Forwarded     *bool `config:"forwarded"`
-	SimpleQuery   query `config:",inline"`
+	BatchReadSize int    `config:"batch_read_size"` // Maximum number of events that Read will return.
+	IncludeXML    bool   `config:"include_xml"`
+	Forwarded     *bool  `config:"forwarded"`
+	SimpleQuery   query  `config:",inline"`
+	EventLanguage uint32 `config:"language"` // Windows LCID for EvtFormatMessage (0 = system default).
 }
 
 // defaultWinEventLogConfig is the default configuration for new wineventlog readers.
@@ -300,7 +301,7 @@ func newWinEventLog(options *common.Config) (EventLog, error) {
 
 	eventMetadataHandle := func(providerName, sourceName string) sys.MessageFiles {
 		mf := sys.MessageFiles{SourceName: sourceName}
-		h, err := win.OpenPublisherMetadata(0, sourceName, 0)
+		h, err := win.OpenPublisherMetadata(0, sourceName, c.EventLanguage)
 		if err != nil {
 			mf.Err = err
 			return mf
@@ -336,7 +337,7 @@ func newWinEventLog(options *common.Config) (EventLog, error) {
 		}
 	default:
 		l.render = func(event win.EvtHandle, out io.Writer) error {
-			return win.RenderEvent(event, 0, l.renderBuf, l.cache.get, out)
+			return win.RenderEvent(event, c.EventLanguage, l.renderBuf, l.cache.get, out)
 		}
 	}
 
